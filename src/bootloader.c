@@ -166,8 +166,24 @@ static usbd_respond dfu_dnload(void *buf, size_t blksize) {
             dfu_data.bState = USB_DFU_STATE_DFU_ERROR;
             return usbd_ack;
         }
-        aes_decrypt(buf, buf, blksize );
-        dfu_data.bStatus = dfu_data.flash(dfu_data.dptr, buf, blksize);
+        if (blksize == 5) {
+            uint8_t *cp = buf;
+            uint8_t command = *cp;
+            if (command == 0x21) {  /* SET_ADDRESS command */
+                uint32_t address = cp[1]
+                                 | ((uint16_t)cp[2] << 8)
+                                 | ((uint32_t)cp[3] << 16)
+                                 | ((uint32_t)cp[4] << 24);
+                dfu_data.dptr = (void*)(uintptr_t)address;
+                dfu_data.bStatus = USB_DFU_STATUS_OK;
+                blksize = 0;
+            } else {
+                dfu_data.bStatus = USB_DFU_STATUS_ERR_TARGET;
+            }
+        } else {
+            aes_decrypt(buf, buf, blksize);
+            dfu_data.bStatus = dfu_data.flash(dfu_data.dptr, buf, blksize);
+        }
 
         if (dfu_data.bStatus == USB_DFU_STATUS_OK) {
             dfu_data.dptr += blksize;
