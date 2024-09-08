@@ -74,6 +74,9 @@ static struct dfu_data_s {
     uint8_t     interface;
     uint8_t     bStatus;
     uint8_t     bState;
+#if defined(DFU_WATCHDOG)
+    uint32_t    counter;
+#endif
 } dfu_data;
 
 /** Processing DFU_SET_IDLE request */
@@ -99,6 +102,27 @@ static usbd_respond dfu_set_idle(void) {
 }
 
 extern void System_Reset(void);
+
+static inline void heartbeat(void) {
+#if defined(DFU_WATCHDOG)
+    dfu_data.counter = 0;
+    SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_ENABLE_Msk;
+    SysTick->VAL = SysTick->LOAD = (1ULL << 24) - 1;
+    SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
+#endif
+}
+
+static inline void watchdog(void) {
+#if defined(DFU_WATCHDOG)
+    if (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) {
+        dfu_data.counter++;
+    }
+    if ((((uint64_t)dfu_data.counter << 24)
+      | (~SysTick->VAL & ((1ULL << 24) - 1))) > DFU_WATCHDOG) {
+        System_Reset();
+    }
+#endif
+}
 
 static usbd_respond dfu_err_badreq(void) {
     dfu_data.bState  = USB_DFU_STATE_DFU_ERROR;
@@ -223,6 +247,7 @@ static void dfu_reset(usbd_device *dev, uint8_t ev, uint8_t ep) {
 }
 
 static usbd_respond dfu_control (usbd_device *dev, usbd_ctlreq *req, usbd_rqc_callback *callback) {
+    heartbeat();
     (void)callback;
     if ((req->bmRequestType  & (USB_REQ_TYPE | USB_REQ_RECIPIENT)) == (USB_REQ_STANDARD | USB_REQ_INTERFACE)) {
         switch (req->bRequest) {
@@ -287,6 +312,7 @@ static usbd_respond dfu_control (usbd_device *dev, usbd_ctlreq *req, usbd_rqc_ca
 
 
 static usbd_respond dfu_config(usbd_device *dev, uint8_t config) {
+    heartbeat();
     switch (config) {
     case 0:
         usbd_reg_event(dev, usbd_evt_reset, 0);
@@ -313,7 +339,9 @@ static void dfu_init (void) {
 
 int main (void) {
     dfu_init();
+    heartbeat();
     while(1) {
         usbd_poll(&dfu);
+        watchdog();
     }
 }
