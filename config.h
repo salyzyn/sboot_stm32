@@ -117,9 +117,9 @@
 #ifndef DFU_STR_FLASH
 #if defined(STM32G491xx) //Cat4
 // NB: overstated for STM32G4x1xc which is only 256K
-#define DFU_STR_FLASH       "Internal flash/0x08000000/256*2KD"
+#define DFU_STR_FLASH       "Internal flash/0x08000000/256*2KE"
 #elif defined(STM32F429xx)
-#define DFU_STR_FLASH       "Internal flash/0x08000000/4*16KD,1*64KD,6*128KD,4*16KD,1*64KD,6*128KD"
+#define DFU_STR_FLASH       "Internal flash/0x08000000/4*16KE,1*64KE,6*128KE,4*16KE,1*64KE,6*128KE"
 #else
 #define DFU_STR_FLASH       "Internal flash"
 #endif
