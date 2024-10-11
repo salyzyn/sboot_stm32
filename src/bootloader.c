@@ -169,13 +169,22 @@ static usbd_respond dfu_dnload(void *buf, size_t blksize) {
         if (blksize == 5) {
             uint8_t *cp = buf;
             uint8_t command = *cp;
-            if (command == 0x21) {  /* SET_ADDRESS command */
+            if ((command == 0x21)      /* SET_ADDRESS command */
+             || (command == 0x41)) {   /* ERASE_PAGE command  */
                 uint32_t address = cp[1]
                                  | ((uint16_t)cp[2] << 8)
                                  | ((uint32_t)cp[3] << 16)
                                  | ((uint32_t)cp[4] << 24);
-                dfu_data.dptr = (void*)(uintptr_t)address;
-                dfu_data.bStatus = USB_DFU_STATUS_OK;
+                if (command == 0x41) { /* ERASE_PAGE command  */
+                    *((uint64_t*)buf) = -1LL;
+                    dfu_data.bStatus = dfu_data.flash(
+                        (void*)(uintptr_t)address,
+                        buf,
+                        sizeof(uint64_t));
+                } else {               /* SET_ADDRESS command */
+                    dfu_data.dptr = (void*)(uintptr_t)address;
+                    dfu_data.bStatus = USB_DFU_STATUS_OK;
+                }
                 blksize = 0;
             } else {
                 dfu_data.bStatus = USB_DFU_STATUS_ERR_TARGET;
