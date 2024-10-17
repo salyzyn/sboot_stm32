@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include "stm32.h"
+#include "usart.h"
 #include "usb.h"
 #include "usb_dfu.h"
 #include "descriptors.h"
@@ -114,7 +115,10 @@ static usbd_respond dfu_set_idle(void) {
 
 extern void System_Reset(void);
 
-static inline void heartbeat(void) {
+#if !defined(DFU_USART) && !defined(DFU_UART)
+static inline
+#endif
+void heartbeat(void) {
 #if defined(DFU_WATCHDOG)
     dfu_data.counter = 0;
     SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_ENABLE_Msk;
@@ -132,6 +136,9 @@ static inline void watchdog(void) {
       | (~SysTick->VAL & ((1ULL << 24) - 1))) > DFU_WATCHDOG) {
         System_Reset();
     }
+#endif
+#if defined(DFU_USART) || defined(DFU_UART)
+    usart_poll();
 #endif
 }
 
@@ -436,6 +443,9 @@ static void dfu_init (void) {
 
 int main (void) {
     dfu_init();
+#if defined(DFU_USART) || defined(DFU_UART)
+    usart_init();
+#endif
     heartbeat();
     while(1) {
         usbd_poll(&dfu);

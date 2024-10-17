@@ -33,7 +33,7 @@ CRYPT_SRC  += src/xtea.c src/xtea1.c src/blowfish.c src/rtea.c src/rc6.c src/rij
 CRYPT_SRC  += src/magma.c
 CRYPT_SRC  += src/checksum.c src/crypto.c
 
-FW_SRC      = $(CRYPT_SRC) $(FWSTARTUP) src/descriptors.c src/bootloader.c src/rc5a.S src/chacha_a.S src/rc6a.S
+FW_SRC      = $(CRYPT_SRC) $(FWSTARTUP) src/descriptors.c src/bootloader.c src/rc5a.S src/chacha_a.S src/rc6a.S src/usart.c
 SW_SRC      = $(CRYPT_SRC) src/encrypter.c
 TS_SRC      = $(filter-out src/crypto.c, $(CRYPT_SRC)) src/ctest.c
 
