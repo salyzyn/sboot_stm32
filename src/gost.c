@@ -33,6 +33,7 @@ static const uint32_t S[] = {
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#pragma GCC diagnostic ignored "-Wuninitialized"
 static uint32_t sbox(uint32_t in) {
     uint32_t out;
     for(int i = 0; i < 8; i++) {
