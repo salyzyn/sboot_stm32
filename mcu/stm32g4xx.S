@@ -270,7 +270,7 @@ _default_handler:
 
     .macro    def_irq_handler    handler_name
     .weak    \handler_name
-    .thumb_set \handler_name, _default_handler
+    .thumb_set \handler_name, System_Reset
     .endm
 
     def_irq_handler    NMI_Handler
