@@ -16,6 +16,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <string.h>
+
 #include "config.h"
 #include "stm32.h"
 #include "usb.h"
@@ -61,6 +63,15 @@
 /* DFU request buffer size data + request header */
 #define DFU_BUFSZ  ((DFU_BLOCKSZ + 3 + 8) >> 2)
 
+#ifndef CRYPTO_BLKSIZE
+#define CRYPTO_BLKSIZE 16
+#endif
+
+extern uint8_t  __data_start__;
+extern uint8_t  __bss_end__;
+extern uint8_t  __stack;
+extern uint8_t  __isr_vector;
+extern uint8_t  __etext;
 extern uint8_t  __app_start;
 extern uint8_t  __romend;
 
@@ -152,6 +163,59 @@ static usbd_respond dfu_upload(usbd_device *dev, size_t blksize) {
 }
 #endif
 
+bool flash_address(uintptr_t address, size_t blksize) {
+    return !((address | blksize) & (sizeof(uint32_t) - 1))
+        && (FLASH_BASE <= address)
+        && ((address + blksize) < (FLASH_BASE
+                      + (*((const uint16_t*)FLASHSIZE_BASE) * (uint32_t)1024)));
+}
+
+/* address would result in an access or bootloader violation */
+bool invalid_address(uintptr_t address, size_t blksize) {
+    /* Must be aligned to crypto block buffer size */
+    uintptr_t top = address + blksize;
+    /* information block? system memory? option byte areas? */
+    return ((address | blksize) & (CRYPTO_BLKSIZE - 1))
+     || ((((uintptr_t)&__data_start__) <= top)
+      && (address < ((uintptr_t)&__bss_end__)))
+     || ((((uintptr_t)&top) <= top)
+      && (address < ((uintptr_t)&__stack)))
+     || ((((uintptr_t)&__isr_vector) <= top)
+      && (address < ((uintptr_t)&__etext)))
+     || (!flash_address(address, blksize)
+#ifndef SRAM1_SIZE_MAX
+# define SRAM1_SIZE_MAX 262144
+#endif
+      && ((SRAM1_BASE > address)
+       || (top >= (SRAM1_BASE + SRAM1_SIZE_MAX)))
+/* heuristic to determine the SRAM2_SIZE if not supplied by CMSIS */
+#ifndef SRAM2_SIZE
+# if (SRAM2_BASE == 0x20028000UL)
+#  define SRAM2_SIZE 32768
+# elif (SRAM2_BASE == 0x20040000UL) || (SRAM2_BASE == 0x22800000UL)
+#  define SRAM2_SIZE 65536
+# elif (SRAM2_BASE == 0x20004000UL) || (SRAM2_BASE == 0x22080000UL)
+#  define SRAM2_SIZE 6144
+# else
+#  define SRAM2_SIZE 16384
+# endif
+#endif
+      && ((SRAM2_BASE > address)
+       || (top >= (SRAM2_BASE + SRAM2_SIZE
+#ifdef CCMSRAM_SIZE
+                                                              + CCMSRAM_SIZE
+#endif
+                                                                         )))
+#if defined(CCMDATARAM_BASE)
+# ifndef CCMDATARAM_SIZE
+#  define CCMDATARAM_SIZE (CCMDATARAM_END - CCMDATARAM_BASE)
+# endif
+      && ((CCMDATARAM_BASE > address)
+       || (top >= (CCMDATARAM_BASE + CCMDATARAM_SIZE)))
+#endif
+      );
+}
+
 static usbd_respond dfu_dnload(void *buf, size_t blksize) {
     switch(dfu_data.bState) {
     case    USB_DFU_STATE_DFU_DNLOADIDLE:
@@ -175,7 +239,8 @@ static usbd_respond dfu_dnload(void *buf, size_t blksize) {
                                  | ((uint16_t)cp[2] << 8)
                                  | ((uint32_t)cp[3] << 16)
                                  | ((uint32_t)cp[4] << 24);
-                if (command == 0x41) { /* ERASE_PAGE command  */
+                if ((command == 0x41) /* ERASE_PAGE command  */
+                 && flash_address(address, 0)) {
                     *((uint64_t*)buf) = -1LL;
                     dfu_data.bStatus = dfu_data.flash(
                         (void*)(uintptr_t)address,
@@ -189,9 +254,16 @@ static usbd_respond dfu_dnload(void *buf, size_t blksize) {
             } else {
                 dfu_data.bStatus = USB_DFU_STATUS_ERR_TARGET;
             }
+        } else if (invalid_address((uintptr_t)dfu_data.dptr, blksize)) {
+            dfu_data.bStatus = USB_DFU_STATUS_ERR_ADDRESS;
         } else {
             aes_decrypt(buf, buf, blksize);
-            dfu_data.bStatus = dfu_data.flash(dfu_data.dptr, buf, blksize);
+            if (flash_address((uintptr_t)dfu_data.dptr, blksize)) {
+                dfu_data.bStatus = dfu_data.flash(dfu_data.dptr, buf, blksize);
+            } else {
+                memcpy(dfu_data.dptr, buf, blksize);
+                dfu_data.bStatus = USB_DFU_STATUS_OK;
+            }
         }
 
         if (dfu_data.bStatus == USB_DFU_STATUS_OK) {
