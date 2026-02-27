@@ -6,6 +6,7 @@
 #define FLASH_SR        0x10
 #define FLASH_CR        0x14
 #define FLASH_OPTR      0x20
+#define FLASH_OPTR_IWDG_SW (1U << 16)
 #define FLASH_PRGKEY0   0x45670123
 #define FLASH_PRGKEY1   0xCDEF89AB
 #define FLASH_OPTKEY0   0x08192A3B
@@ -20,6 +21,19 @@
 #define RCC_CCIPR       0x88
 #define RCC_CRRCR       0x98
 
+#define IWDG_BASE       0x40003000
+#define IWDG_KR         0x00
+#define IWDG_PR         0x04
+#define IWDG_RLR        0x08
+#define IWDG_SR         0x0C
+#define IWDG_KEY_UNLOCK 0x5555
+#define IWDG_KEY_RELOAD 0xAAAA
+#define IWDG_PR_256     0x06
+#define IWDG_RLR_RL     0x0FFF
+#if defined(DFU_IWDG)
+#undef OPTION
+#define OPTION 0xAA55
+#endif
 
 #define GPIOA           0x48000000
 #define GPIOB           0x48000400
@@ -110,6 +124,61 @@ __isr_vector:
     .globl  Reset_Handler
     .type   Reset_Handler, %function
 Reset_Handler:
+#if !defined(DFU_IWDG)
+    ldr     r1, = (FLASH_R_BASE + FLASH_OPTR)
+    ldr     r2, [r1]
+    ldr     r3, = FLASH_OPTR_IWDG_SW
+    tsr     r2, r3
+    bne     .L_skip_iwdt_workaround
+#endif
+#if !defined(DFU_IWDG) || (defined(DFU_IWDG) && ((DFU_IWDG + 0) != OPTION))
+    /*
+     * WORKAROUND: Hardware Watchdog Post-Reset Extension
+     *
+     * When the FLASH_OPTR "IWDG_SW" bit is cleared, the hardware watchdog
+     * starts autonomously out of reset with a hardcoded /4 prescaler and a
+     * max 4095 counter.  At a nominal 32kHz LSI clock, this creates an
+     * absolute maximum window of 512ms before an automated core reset
+     * occurs.
+     *
+     * CRITICAL TIMING FACTOR: The STM32G491 consumes ~100ms during its
+     * internal hardware power-on/reset stabilization sequence BEFORE
+     * branching to Reset_Handler.  Because the IWDG counts down
+     * continuously during this initialization phase, only ~400ms remains
+     * when this entry point takes execution control.
+     *
+     * ACTION: To prevent premature execution timeouts during
+     * pin-debouncing scans, clock configuration steps, or flash multi-page
+     * updates, we immediately unlock the IWDG registers here at cycle 0
+     * and push the prescaler out to /256.  This safely expands the margin
+     * out to its maximum layout limit of 32.76 seconds
+     */
+    ldr     r1, = IWDG_BASE
+    ldr     r2, = IWDG_KEY_UNLOCK
+    str     r2, [r1, #IWDG_KR]
+    movs    r2, #IWDG_PR_256
+    str     r2, [r1, #IWDG_PR]
+#ifndef DFU_IWDG
+    ldr     r2, = IWDG_RLR_RL
+#elif ((DFU_IWDG + 0) <= 0) || ((DFU_IWDG + 0) > IWDG_RLR)
+    ldr     r2, = IWDG_RLR_RL
+#else
+    ldr     r2, = DFU_IWDG
+#endif
+    str     r2, [r1, #IWDG_RLR]
+    ldr     r3, = 1000
+.L_wait_iwdg_sync:
+    ldr     r2, [r1, #IWDG_SR]
+    cbz     r2, .L_iwdg_sync_done
+    subs    r3, r3, #1
+    bne     .L_wait_iwdg_sync
+.L_iwdg_sync_done:
+    ldr     r2, = IWDG_KEY_RELOAD
+    str     r2, [r1, #IWDG_KR]
+#endif
+#if !defined(DFU_IWDG)
+.L_skip_iwdg_workaround:
+#endif
     ldr     r1, = _KEY_ADDR
     ldr     r2, = DFU_BOOTKEY
     movs    r3, 0x00

@@ -115,16 +115,61 @@ static usbd_respond dfu_set_idle(void) {
 
 extern void System_Reset(void);
 
+#if defined(DFU_IWDG)
+#define IWDG_KEY_RELOAD               0xAAAA
+#define IWDG_KEY_ENABLE               0xCCCC
+#define IWDG_KEY_WRITE_ACCESS_ENABLE  0x5555
+#define IWDG_KEY_WRITE_ACCESS_DISABLE 0x0000
+#endif
+
 #if !defined(DFU_USART) && !defined(DFU_UART)
 static inline
 #endif
 void heartbeat(void) {
 #if defined(DFU_WATCHDOG)
     dfu_data.counter = 0;
+#endif
+#if !defined(DFU_IWDG)
+#if defined(FLASH_OPTR_IWDG_SW)
+    if (!(FLASH->OPTR & FLASH_OPTR_IWDG_SW))
+#else
+    if (false)
+#endif
+#endif
+    {
+        IWDG->KR = IWDG_KEY_RELOAD;
+    }
+}
+
+static inline void watchdog_init(void) {
+#if defined(DFU_WATCHDOG)
     SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_ENABLE_Msk;
     SysTick->VAL = SysTick->LOAD = (1ULL << 24) - 1;
     SysTick->CTRL |= SysTick_CTRL_ENABLE_Msk;
 #endif
+    /* See workaround in mcu/stm32g4xx.S to understand why */
+#if defined(DFU_IWDG) && !defined(STM32G4)
+    IWDG->KR = IWDG_KEY_ENABLE;
+    IWDG->KR = IWDG_KEY_WRITE_ACCESS_ENABLE;
+    IWDG->PR = IWDG_PR_PR_2 | IWDG_PR_PR_1;
+#if ((DFU_IWDG + 0) <= 0)
+    IWDG->RLR = IWDG_RLR_RL;
+#elif (DFU_IWDG >= IWDG_RLR_RL)
+    IWDG->RLR = IWDG_RLR_RL;
+#else
+    IWDG->RLR = DFU_IWDG;
+#endif
+    uint32_t counter = 1000;
+    while ((IWDG->SR & (IWDG_SR_RVU
+#if defined(IWDG_SR_WVU)
+                      | IWDG_SR_WVU
+#endif
+                      | IWDG_SR_PVU)) && --counter);
+#if defined(IWDG_WINR_WIN)
+    IWDG->WINR = IWDG_WINR_WIN;
+#endif
+    IWDG->KR = IWDG_KEY_WRITE_ACCESS_DISABLE;
+#endif  /* DFU_IWDG */
 }
 
 static inline void watchdog(void) {
@@ -446,6 +491,7 @@ int main (void) {
 #if defined(DFU_USART) || defined(DFU_UART)
     usart_init();
 #endif
+    watchdog_init();
     heartbeat();
     while(1) {
         usbd_poll(&dfu);
