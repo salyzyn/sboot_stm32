@@ -19,6 +19,9 @@
 #define RCC_AHB2RSTR    0x2C
 #define RCC_AHB2ENR     0x4C
 #define RCC_CCIPR       0x88
+#define RCC_CSR         0x94
+#define RCC_CSR_RMVF_BIT  0x00800000
+#define RCC_CSR_WWDG_IWDG 0x60000000
 #define RCC_CRRCR       0x98
 
 #define IWDG_BASE       0x40003000
@@ -234,6 +237,23 @@ Reset_Handler:
     movs    r0, 0x08
     strb    r0, [r5, RCC_CCIPR + 0x03]
     cbz     r4, .L_start_boot
+
+#if (defined(DFU_BOOTSTRAP_IWDG))
+    ldr     r1, = (RCC_BASE + RCC_CSR)
+    ldr     r2, [r1]
+    ldr     r3, = RCC_CSR_WWDG_IWDG
+    tst     r2, r3
+    beq     .L_check_pin
+    /* Was the watchdog tripped *inside* the bootloader? */
+    ldr     r2, = DFU_BOOTKEY
+    eors    r2, r4
+    beq     .L_check_pin
+    /* Force Clear reason and Jump to Bootloader Entry */
+    ldr     r2, = RCC_CSR_RMVF_BIT
+    str     r2, [r1]
+    b       .L_start_boot
+.L_check_pin:
+#endif
 
 #if (DFU_BOOTSTRAP_GPIO != _DISABLE)
 /* checking bootstrap pin */
