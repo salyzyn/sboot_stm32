@@ -22,6 +22,7 @@
 #define RCC_CSR         0x94
 #define RCC_CSR_RMVF_BIT  0x00800000
 #define RCC_CSR_WWDG_IWDG 0x60000000
+#define RCC_CSR_POR_BOR   0x0A000000
 #define RCC_CRRCR       0x98
 
 #define IWDG_BASE       0x40003000
@@ -256,6 +257,15 @@ Reset_Handler:
 #endif
 
 #if (DFU_BOOTSTRAP_GPIO != _DISABLE)
+#if (defined(DFU_BOOTSTRAP_POR_ONLY))
+#if (!defined(DFU_BOOTSTRAP_IWDG))
+    ldr     r1, = (RCC_BASE + RCC_CSR)
+#endif
+    ldr     r2, [r1]
+    ldr     r3, = RCC_CSR_POR_BOR
+    tst     r2, r3
+    beq     .L_skip_gpio
+#endif
 /* checking bootstrap pin */
     ldr     r1, = DFU_BOOTSTRAP_GPIO
     movs    r2,  BOOTSTRAP_RCC
@@ -299,6 +309,9 @@ Reset_Handler:
     str     r2, [r5, RCC_AHB2RSTR]
     str     r2, [r5, RCC_AHB2ENR]
     cbz     r4, .L_start_boot
+#if (defined(DFU_BOOTSTRAP_POR))
+.L_skip_gpio:
+#endif
 #endif
 
 #if (DFU_VERIFY_CHECKSUM != _DISABLE)
