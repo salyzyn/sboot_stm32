@@ -250,7 +250,9 @@ Reset_Handler:
     eors    r2, r4
     beq     .L_check_pin
     /* Force Clear reason and Jump to Bootloader Entry */
-    ldr     r2, = RCC_CSR_RMVF_BIT
+    ldr     r2, [r1]
+    ldr     r3, = RCC_CSR_RMVF_BIT
+    orrs    r2, r3
     str     r2, [r1]
     b       .L_start_boot
 .L_check_pin:
