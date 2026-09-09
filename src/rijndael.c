@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "config.h"
 #include "rijndael.h"
 #include "misc.h"
 
